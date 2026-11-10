@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Substrate → Packaging → Facility Knowledge Graph (Sourced, Weighted, Agent-Driven)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root{ --bg:#0f1115; --card:#161923; --border:#2a2e3a; --text:#e7e9ee; --muted:#9aa0ad; --good:#5DCAA5; --warn:#EF9F27; --bad:#e0655b; }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text);}
+  #wrap{display:flex; height:100vh;}
+  #graph{flex:1; position:relative;}
+  svg{width:100%; height:100%; display:block;}
+  #side{width:390px; border-left:1px solid var(--border); background:var(--card); padding:16px; overflow-y:auto; flex-shrink:0;}
+  h1{font-size:13.5px; margin:0 0 4px; font-weight:600;}
+  .sub{font-size:11.3px; color:var(--muted); margin-bottom:12px; line-height:1.5;}
+  .legend-title{font-size:10.3px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:11px 0 6px;}
+  .legend-item{display:flex; align-items:center; gap:7px; font-size:11.3px; padding:2px 0; cursor:pointer; user-select:none;}
+  .legend-item.dim{opacity:.3;}
+  .dot{width:10px; height:10px; border-radius:50%; flex-shrink:0;}
+  #detail{margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:11.8px; line-height:1.6; color:var(--muted); min-height:80px;}
+  #detail b{color:var(--text); font-size:12.8px; display:block; margin-bottom:5px;}
+  #detail .cat{display:inline-block; font-size:9.8px; padding:2px 6px; border-radius:9px; margin-bottom:6px; margin-right:4px;}
+  .conf{display:inline-block; font-size:9.3px; padding:2px 6px; border-radius:9px; margin-bottom:6px; font-weight:600;}
+  .conf.high{background:#5DCAA522; color:#5DCAA5;}
+  .conf.medium{background:#EF9F2722; color:#EF9F27;}
+  .conf.estimate{background:#e0655b22; color:#e0655b;}
+  .hint{font-size:10.8px; color:var(--muted); margin-top:8px;}
+  .src{font-size:10.3px; color:#8bb4e0; margin:3px 0; padding-left:10px; border-left:2px solid #2a3e55;}
+  .impact{font-size:11.3px; margin-top:8px; padding:7px 8px; background:#1d2130; border-radius:6px; border-left:3px solid var(--warn);}
+  .agent-box{border:1px solid var(--border); border-radius:8px; padding:9px; margin-bottom:8px; font-size:11.3px;}
+  .agent-box b{display:block; font-size:11.8px; margin-bottom:3px;}
+  .agent-box .asrc{font-size:9.8px; color:var(--muted); margin-top:4px;}
+  button{font-size:10.8px; background:transparent; border:1px solid var(--border); color:var(--text); padding:5px 9px; border-radius:6px; cursor:pointer;}
+  button:hover{border-color:#666;}
+  button.primary{background:#3a5a8c; border-color:#3a5a8c;}
+  .node-label{fill:var(--text); font-size:8.6px; pointer-events:none;}
+  .layer-tag{position:absolute; top:8px; font-size:9.3px; color:var(--muted); background:rgba(22,25,35,.75); padding:3px 7px; border-radius:5px; pointer-events:none; white-space:nowrap;}
+  .tabbar{display:flex; gap:5px; margin-bottom:10px;}
+  .tabbar button{flex:1; padding:5px 4px;}
+  .tabbar button.active{background:#3a5a8c; border-color:#3a5a8c;}
+  .pane{display:none;}
+  .pane.active{display:block;}
+  .shape-legend{font-size:10.3px; color:var(--muted); line-height:1.9; margin-top:6px;}
+  .shape-swatch{display:inline-block; width:12px; text-align:center;}
+  .override-box{margin-top:10px; padding:8px; background:#1d2130; border-radius:6px;}
+  .override-box input[type=range]{width:100%; margin:6px 0;}
+  .override-badge{display:inline-block; font-size:9.3px; padding:2px 6px; border-radius:9px; background:#e0655b22; color:#e0655b; margin-left:6px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="graph"><svg id="svg"></svg></div>
+  <div id="side">
+    <h1>Substrate → packaging tech → facility → processor → end-use</h1>
+    <div class="sub">Includes Intel's EMIB / EMIB-T / Foveros packaging technologies and the specific state/country facilities each substrate supplier and Intel operate in. Node size &amp; shape = weight. Three ways to change it: toggle simulated agents (Agents tab), run a genuinely live Gemini search-grounded fetch (Live AI tab), or manually drag a node's weight yourself (click a node, use the slider at the bottom of its detail panel).</div>
+
+    <div class="tabbar">
+      <button id="tabGraph" class="active">Legend</button>
+      <button id="tabAgents">Agents</button>
+      <button id="tabLive">Live AI</button>
+      <button id="tabSources">Sources</button>
+    </div>
+
+    <div id="paneGraph" class="pane active">
+      <div class="legend-title">Chain layers</div>
+      <div id="legendChain"></div>
+      <div class="legend-title">PESTEL</div>
+      <div id="legendPestel"></div>
+      <div class="shape-legend">
+        <div class="legend-title" style="margin-top:10px;">Shape = current weight tier</div>
+        <div><span class="shape-swatch">●</span> normal (&lt;2.5)</div>
+        <div><span class="shape-swatch">▲</span> elevated (2.5–3.5)</div>
+        <div><span class="shape-swatch">■</span> high (3.5–4.5)</div>
+        <div><span class="shape-swatch">◆</span> critical (&gt;4.5)</div>
+      </div>
+      <div style="margin-top:10px;"><button id="reset">Reset view</button></div>
+    </div>
+
+    <div id="paneAgents" class="pane">
+      <div class="sub" style="margin-bottom:8px;">Static, dated, sourced snapshots — not a live scraper (this environment can't run scheduled background web access). Toggle and recompute.</div>
+      <div id="agentList"></div>
+      <button class="primary" id="runAgents" style="width:100%; margin-top:6px;">▶ Recompute weights</button>
+      <div id="agentLog" class="sub" style="margin-top:10px;"></div>
+    </div>
+
+    <div id="paneLive" class="pane">
+      <div class="sub" style="margin-bottom:8px;">
+        Genuinely live: calls the Gemini API with Google Search grounding directly from this page. Your key is used only in this browser tab — kept in memory, never saved, gone on reload/close.
+      </div>
+      <label class="hint" style="display:block; margin-bottom:4px;">Gemini API key (aistudio.google.com/apikey)</label>
+      <input type="text" id="geminiKey" placeholder="AIzaSy..." style="width:100%; padding:6px 8px; margin-bottom:4px; background:#0f1115; border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:11.5px;">
+      <div id="keyCheck" class="hint" style="margin-bottom:10px;">No key entered yet.</div>
+      <button id="testConnection" style="width:100%; margin-bottom:10px;">🔧 Test connection (1 minimal call)</button>
+      <div class="legend-title">Layers to query (each = 1 API call)</div>
+      <div id="liveLayerList" style="margin-bottom:8px;"></div>
+      <button class="primary" id="runLiveAgent" style="width:100%;">▶ Fetch live &amp; recompute</button>
+      <div id="liveLog" class="sub" style="margin-top:10px; white-space:pre-wrap;"></div>
+    </div>
+
+    <div id="paneSources" class="pane">
+      <div class="sub" style="margin-bottom:8px;">All sources used. Node citations reference these by number.</div>
+      <div id="sourceList"></div>
+    </div>
+
+    <div id="detail">Click any node for its sources, confidence level and business-impact weighting.</div>
+  </div>
+</div>
+<script>
+/* ============ SOURCE REGISTRY ============ */
+const sources = [
+ {id:1, name:"TrendForce — Ajinomoto to invest ¥25bn expanding ABF production", url:"trendforce.com, Apr 1 2025", note:">95% global ABF share for GPU/CPU substrates."},
+ {id:2, name:"BigGo Finance — Ajinomoto hikes ABF price 30%", url:"finance.biggo.com, May 14 2026", note:">95% ABF share; 30% price hike Q3 2026; Resonac & Mitsubishi Gas Chemical also raised CCL prices 30%; AI packaging layers moving 3+3→11+11→13+13."},
+ {id:3, name:"NextFinancial / \"The MSG Monopoly\"", url:"nextfinancial.substack.com, Apr 22 2026", note:"~98% Ajinomoto share; Sekisui Chemical ~5% since 2014 entry (blog source, directionally consistent with #1/#2)."},
+ {id:4, name:"Valuates Reports — Global FC BGA Market", url:"reports.valuates.com", note:"Top-5 FCBGA suppliers ~74% share; Taiwan ~30% regional share; PCs = 40% of application; 4-8 layer ABF = 69% of type segment."},
+ {id:5, name:"Mordor Intelligence — Advanced IC Substrates Market", url:"mordorintelligence.com, updated 2026", note:"Top-5 suppliers ~60% capacity, none >18% individually; ASP $65→$82/unit 2024→2025; AMD $400M/SPIL JV for 30% of a Taiwan facility's output; Unimicron $180M/30% of Corning glass pilot line; AT&S €500M EU funding for Leoben; Ibiden $1.2B Phoenix AZ fab + $320M CHIPS grant, 30,000 panels/mo by late 2027; Samsung EM $600M Busan expansion; hyperscalers installed 1.2M AI accelerator units in 2025 (citing Nvidia 10-K)."},
+ {id:6, name:"TrendForce — Intel EMIB substrate partners", url:"trendforce.com, May 20 2026", note:"Confirms Intel's EMIB substrate partners: Ibiden & Shinko (Japan), Unimicron & AT&S (Taiwan/Austria); EMIB-M reticle scaling 6x now, 8-12x by 2026-27 vs. CoWoS-S ~3.3x / CoWoS-L ~3.5x."},
+ {id:7, name:"ic-pcb.com — Ibiden $3.18bn AI substrate expansion", url:"ic-pcb.com, Feb 5 2026", note:"¥500bn capex FY26-28; Kawama plant \"originally built for Intel\"; AI substrate capacity ~2.5x by FY2028."},
+ {id:8, name:"Digitimes — Ibiden $3.3bn IC substrate expansion", url:"digitimes.com, Feb 4 2026", note:"Corroborates #7."},
+ {id:9, name:"Nikkei Asia — Ibiden to expand IC substrate output amid AI boom", url:"asia.nikkei.com, Sep 21 2025", note:"Confirms Ibiden (Nvidia + Intel supplier) building AI-server capacity at Ono plant."},
+ {id:10, name:"Nikhs / \"Ibiden: The Hidden Bottleneck Beneath AI\"", url:"nikhs.substack.com, Apr 8 2026", note:"Claims Intel/AMD/Nvidia co-funded ~50% of top-4 supplier capex via prepayment (single blog source)."},
+ {id:11, name:"dataintelo — IC Substrate Market Research Report", url:"dataintelo.com, Apr 22 2026", note:"Nvidia GB200 NVL72 rack uses 144+ substrates; AI server shipments ~1.8M (2025)→~4.5M (2028)."},
+ {id:12, name:"SemiconductorX — Substrates & Interposers overview", url:"semiconductorx.com", note:"Unimicron leads FCBGA revenue; Ibiden strongest at Intel & Nvidia; new substrate line = 18-24mo lead time; Intel advanced-packaging expansion at New Mexico, Oregon, Arizona; AT&S Malaysia build among largest Western-owned expansions."},
+ {id:13, name:"Grand View Research / IMARC — Advanced IC Substrates Market", url:"grandviewresearch.com, imarcgroup.com, 2026", note:"US CHIPS Act $50bn+ total, ~$1.6bn specifically for FCBGA/FCCSP packaging."},
+ {id:14, name:"Semiconductorinsight.com — Ajinomoto ramps ABF production", url:"semiconductorinsight.com, Sep 27 2025", note:"Confirms >95% ABF share; ¥25bn/50% capacity expansion by 2030."},
+ {id:15, name:"User-supplied prior AI Overview session (uploaded document)", url:"n/a — not independently re-verified", note:"Copper-foil, ceramic powder, PESTEL Social/Environmental/Legal items with no fresh primary source found. Directional only."},
+ {id:16, name:"EDN — Intel ups the advanced packaging ante with EMIB-T", url:"edn.com, May 5 2025", note:"EMIB-T = EMIB-TSV; through-silicon vias through the bridge; supports HBM4 and UCIe; effectively EMIB 2.5D + Foveros 3D combined."},
+ {id:17, name:"SemiWiki — Revolutionizing Chip Packaging: Impact of EMIB", url:"semiwiki.com, Aug 27 2025", note:"EMIB variants reach FCBGA-comparable assembly yields; EMIB+Foveros = EMIB 3.5D hybrid architecture."},
+ {id:18, name:"SemiWiki forum — Chiplet Design Capabilities with Intel Foundry (2025 IEEE ECTC)", url:"semiwiki.com, Aug 19 2025", note:"EMIB-T adds vertical power delivery for HBM; customers choose EMIB-M (MIM capacitors) vs EMIB-T depending on design needs."},
+ {id:19, name:"Intel — Foveros 2.5D Technology Brief", url:"intel.com, Jul 2025 PDF", note:"Foveros 2.5D in HVM since 2019; Foveros-S = 36µm microbump pitch; EMIB+Foveros combine into EMIB 3.5D."},
+ {id:20, name:"Chipstrat — Advanced Packaging: Intel's EMIB vs TSMC's CoWoS", url:"chipstrat.com, May 15 2026", note:"EMIB embeds bridges directly into the organic substrate, skipping the separate interposer-attach step that CoWoS-L requires."},
+ {id:21, name:"LoveChip — Foveros vs EMIB", url:"lovechip.com, Jan 30 2026", note:"Foveros = 3D active-die stacking (TSVs/microbumps); EMIB = 2.5D lateral bridge; Co-EMIB combines both; not competing, complementary."},
+ {id:22, name:"Intel Newsroom — Intel's US Advanced Packaging Enables Next-Gen AI Semiconductors", url:"newsroom.intel.com, ~Jul 2026", note:"New Mexico Fab 9 (Rio Rancho) performs Foveros chip-attach and EMIB bridge-embedding for AI chiplets."},
+ {id:23, name:"Intel Foundry — Advanced Packaging Innovations page", url:"intel.com/foundry/packaging", note:"Roadmap: Foveros Direct (Cu-Cu hybrid bonding), EMIB 3.5D, next-gen RDL interposer at 4x reticle (production-ready 2027)."},
+ {id:24, name:"Manufacturing Dive — Absolics, Applied Materials, ASU get CHIPS packaging funds", url:"manufacturingdive.com, Nov 21 2024", note:"Absolics: $75M CHIPS construction grant + up to $100M CHIPS R&D award; Covington, GA; $600M glass-substrate factory."},
+ {id:25, name:"Georgia Tech ECE — Packaging Research Center / SKC collaboration", url:"ece.gatech.edu", note:"Absolics/SKC $600M Covington, GA facility; 400+ jobs; described as world's first dedicated glass-substrate factory."},
+ {id:26, name:"NIST — Absolics (Georgia) CHIPS award page", url:"nist.gov/chips, Mar 13 2025", note:"$75M direct funding; 120,000 sq ft Covington, GA facility; ~1,200 construction/mfg/R&D jobs projected."},
+ {id:27, name:"NIST — CHIPS Program Office Vision for Success, Two-Year Report (Appendix)", url:"nist.gov/document, appendix", note:"Amkor Technology Arizona (Peoria): up to $407M direct CHIPS funding for a new advanced packaging & test facility."},
+ {id:28, name:"Amkor Technology IR — New Arizona facility site announcement", url:"ir.amkor.com, Aug 28 2025", note:"Confirms Peoria, Arizona as the finalized site (revised from an earlier location)."},
+ {id:29, name:"Absolics Inc. — company site / timeline", url:"absolicsinc.com", note:"SVM facility groundbreaking; $5M funding round; offices in London and Singapore serving 40+ countries."},
+ {id:30, name:"TrendForce — ASE raises advanced packaging quotes >20%", url:"trendforce.com, Jul 1 2026 (LIVE-FETCHED Aug 18 2026)", note:"ASE (world's leading OSAT) raised CoWoS/FoCoS packaging quotes >20%, citing higher raw material costs and capex; ASE raised 2026 capex guidance to $8.5bn (from $5.3bn in 2025), AI-driven, 15 new factory projects underway. Corroborated by MoneyDJ, Liberty Times, Economic Daily News."},
+ {id:31, name:"TrendForce — Intel CEO confirms EMIB substrate prepayments", url:"trendforce.com, May 20 2026 (LIVE-FETCHED Aug 18 2026)", note:"Intel CEO Lip-Bu Tan, at the J.P. Morgan Global Technology Conference (per Seeking Alpha transcript), confirmed 4 Taiwan + 2 Japan suppliers are requesting customer prepayment commitments for EMIB-T capacity — upgrades source #10's single-blog claim to a company-confirmed statement."},
+ {id:32, name:"SemiAnalysis — ECTC 2026 EMIB-T technical update", url:"newsletter.semianalysis.com, Jul 8 2026 (LIVE-FETCHED Aug 18 2026)", note:"A 240mm×240mm EMIB-T test vehicle shown at ECTC 2026 reportedly exhibited severe warpage; substrate handling, warpage, overlay, and panel-level patterning flagged as first-order constraints at large panel sizes."},
+ {id:33, name:"eTeknix — Intel speeds Ohio EMIB-T factory construction", url:"eteknix.com, ~Aug 2026 (LIVE-FETCHED Aug 18 2026)", note:"Manufacturing yields for organic substrates supplied by Ibiden, Shinko, Unimicron, and AT&S for EMIB are still around 50%, despite ongoing production improvements."}
+];
+
+/* ============ CATEGORIES ============ */
+const categories = {
+  material:   {label:"L1 — Raw materials",         color:"#5DCAA5", x:0.05},
+  substrate:  {label:"L2 — Substrate co. & type",   color:"#F0997B", x:0.21},
+  facility:   {label:"L2b — Supplier facility/state",color:"#C9A66B", x:0.35},
+  packagingtech:{label:"L3b — Packaging technology",color:"#6FBF73", x:0.50},
+  processor:  {label:"L3 — Processor consumption",  color:"#AFA9EC", x:0.63},
+  enduse:     {label:"L4 — AI / non-AI end use",    color:"#7F77DD", x:0.77},
+  political:  {label:"PESTEL — Political",          color:"#85B7EB", x:0.92},
+  economic:   {label:"PESTEL — Economic",           color:"#EF9F27", x:0.92},
+  social:     {label:"PESTEL — Social",             color:"#F09595", x:0.92},
+  tech:       {label:"PESTEL — Technological",      color:"#97C459", x:0.92},
+  environ:    {label:"PESTEL — Environmental",      color:"#639922", x:0.92},
+  legal:      {label:"PESTEL — Legal",              color:"#B4B2A9", x:0.92}
+};
+
+/* ============ NODES ============ */
+const nodes = [
+ // L1 raw materials
+ {id:"Ajinomoto ABF film", cat:"material", base:5, confidence:"high", src:[1,2,3,14],
+   desc:"Organic dielectric build-up film; the insulation layer in nearly all FCBGA substrates.",
+   impact:"CRITICAL bottleneck — 95-98% single-supplier share. The Q3 2026 30% price hike (#2) passes straight through to every substrate maker's COGS at once."},
+ {id:"Sekisui Chemical (2nd source)", cat:"material", base:2, confidence:"medium", src:[3],
+   desc:"Only qualified alternative dielectric-film supplier, entered 2014.",
+   impact:"Low today (~5% share) but the sole hedge against Ajinomoto pricing power."},
+ {id:"Resonac / Mitsubishi Gas Chemical CCL resin", cat:"material", base:3, confidence:"high", src:[2],
+   desc:"Copper-clad laminate resin suppliers, raised prices 30% alongside Ajinomoto in 2026.",
+   impact:"High — compounds ABF cost inflation industry-wide."},
+ {id:"Mitsui/Nan Ya copper foil", cat:"material", base:3, confidence:"estimate", src:[15],
+   desc:"Ultra-thin electrodeposited copper foil (<2µm) for circuit layering.",
+   impact:"Medium — not independently re-verified this session."},
+ {id:"Corning/Schott glass core", cat:"material", base:3, confidence:"high", src:[5],
+   desc:"Specialty glass panels for next-gen glass-core substrates.",
+   impact:"Rising — Unimicron paid $180M for 30% of Corning's glass pilot line (#5)."},
+ {id:"Kyocera/CoorsTek ceramic powders", cat:"material", base:2, confidence:"estimate", src:[15],
+   desc:"Alumina/AlN raw ceramic materials for high-thermal packages.",
+   impact:"Medium — not independently re-verified this session."},
+
+ // L2 substrate companies & type
+ {id:"Ibiden — Organic FCBGA", cat:"substrate", base:5, confidence:"high", src:[5,6,7,8,9,10,12],
+   desc:"Japan. Confirmed EMIB substrate partner for Intel (#6); Kawama plant originally built for Intel (#7).",
+   impact:"CRITICAL — strongest at both Intel and Nvidia (#12); reportedly taking customer prepayments for capacity (#10, single-source)."},
+ {id:"Unimicron — Organic FCBGA", cat:"substrate", base:5, confidence:"high", src:[4,5,6,12],
+   desc:"Taiwan. Confirmed EMIB partner for Intel (#6); leads FCBGA revenue with broadest customer base (#12).",
+   impact:"CRITICAL — shared across Intel/Nvidia/AMD; any allocation shift ripples across all three."},
+ {id:"Shinko Electric — Organic laminate", cat:"substrate", base:4, confidence:"high", src:[4,6],
+   desc:"Japan. Confirmed EMIB partner for Intel (#6).",
+   impact:"High — part of the top-5 core controlling ~60-74% of global capacity."},
+ {id:"AT&S — Organic FCBGA", cat:"substrate", base:4, confidence:"high", src:[4,5,6,12],
+   desc:"Austria/Malaysia. Confirmed EMIB partner for Intel (#6); €500M EU Chips funding for Leoben (#5).",
+   impact:"High — Europe's only meaningful advanced-substrate scale; Malaysia build diversifies beyond Taiwan/Japan (#12)."},
+ {id:"Samsung EM — Glass & Organic", cat:"substrate", base:3, confidence:"high", src:[4,5],
+   desc:"Korea. Committed $600M to Busan rigid-flex expansion, Dec 2025 (#5).",
+   impact:"Medium-high — dual glass/organic line gives optionality."},
+ {id:"Kyocera — Ceramic package", cat:"substrate", base:2, confidence:"medium", src:[4],
+   desc:"Japan. Listed among top-8 ABF/FCBGA players (#4); core strength is ceramic packaging.",
+   impact:"Medium — insulated from ABF-price shocks, smaller addressable market."},
+ {id:"Absolics (SKC/Applied Materials JV) — Glass core", cat:"substrate", base:3, confidence:"high", src:[24,25,26,29],
+   desc:"Korea/USA joint venture (SKC ~70%, Applied Materials minority). Building the world's first dedicated glass-substrate factory.",
+   impact:"Rising — first US glass-substrate producer; central to the Georgia CHIPS packaging cluster."},
+
+ // L2b Facilities
+ {id:"Ibiden fab — Phoenix, Arizona (US)", cat:"facility", base:4, confidence:"high", src:[5],
+   desc:"$1.2B FC-BGA fab targeting 30,000 panels/month by late 2027, backed by $320M CHIPS Act grant.",
+   impact:"High — first meaningful US-based advanced-substrate capacity for Intel/AMD, cutting cross-Pacific lead-time exposure."},
+ {id:"Absolics fab — Covington, Georgia (US)", cat:"facility", base:4, confidence:"high", src:[24,25,26,29],
+   desc:"120,000 sq ft glass-substrate factory; $75M CHIPS construction grant + up to $100M CHIPS R&D award; ~1,200 jobs projected.",
+   impact:"High — the clearest concrete step toward a non-East-Asia, non-organic substrate supply chain."},
+ {id:"Amkor fab — Peoria, Arizona (US)", cat:"facility", base:3, confidence:"high", src:[27,28],
+   desc:"$407M direct CHIPS funding for a new advanced packaging & test facility (OSAT, not a substrate maker itself).",
+   impact:"Medium-high — US onshore final-assembly capacity that complements Ibiden's and Absolics' substrate fabs."},
+ {id:"AT&S — Leoben, Austria & Kulim, Malaysia", cat:"facility", base:4, confidence:"high", src:[5,12],
+   desc:"€500M EU Chips funding for Leoben (+20,000 FC-BGA panels/mo from 2027); Kulim, Malaysia build is among the largest Western-owned advanced-substrate expansions.",
+   impact:"High — Europe's substrate scale-up plus a Southeast Asia diversification hedge in one supplier."},
+ {id:"Samsung EM — Busan, South Korea", cat:"facility", base:3, confidence:"high", src:[5],
+   desc:"$600M rigid-flex expansion, cutting cost per unit ~18% from 2026.",
+   impact:"Medium-high."},
+ {id:"Corning/Unimicron pilot — Corning, New York (US)", cat:"facility", base:3, confidence:"high", src:[5],
+   desc:"Unimicron's $180M / 30% stake in Corning's glass-substrate pilot line; 2nm samples due Q2 2027.",
+   impact:"Medium — a US-soil R&D toehold for a Taiwan-based producer's glass roadmap."},
+ {id:"Intel Foundry — Rio Rancho, New Mexico (Fab 9)", cat:"facility", base:4, confidence:"high", src:[22,12],
+   desc:"Intel's flagship advanced-packaging site: Foveros chip-attach + EMIB bridge-embedding for AI chiplets.",
+   impact:"High — directly determines Intel's own EMIB/Foveros output capacity, independent of external substrate suppliers."},
+ {id:"Intel Foundry — Chandler, Arizona", cat:"facility", base:3, confidence:"medium", src:[12],
+   desc:"Advanced-packaging expansion alongside Intel's Arizona wafer fabs.",
+   impact:"Medium-high."},
+ {id:"Intel Foundry — Hillsboro, Oregon", cat:"facility", base:2, confidence:"medium", src:[12],
+   desc:"R&D and advanced-packaging expansion site.",
+   impact:"Medium."},
+
+ // L3b Packaging technology
+ {id:"EMIB (2.5D bridge)", cat:"packagingtech", base:4, confidence:"high", src:[6,20,21,22,31],
+   desc:"Embeds small silicon bridges directly into the organic substrate instead of using a full silicon interposer, skipping the separate interposer-attach step TSMC's CoWoS-L requires (#20).",
+   impact:"High — Intel's core cost/architecture differentiator, determining how much silicon vs. organic substrate area a package needs."},
+ {id:"EMIB-T (EMIB-TSV)", cat:"packagingtech", base:4, confidence:"high", src:[16,18,32,33],
+   desc:"Adds through-silicon vias through the bridge for vertical power delivery; supports HBM4 and UCIe; effectively merges EMIB 2.5D with Foveros 3D (#16). Customers choose EMIB-M (MIM capacitors) or EMIB-T depending on design needs (#18).",
+   impact:"High — positions Intel for HBM4-heavy next-gen AI accelerators, competing directly with TSMC CoWoS-L/SoIC."},
+ {id:"Foveros 2.5D / Foveros Direct", cat:"packagingtech", base:4, confidence:"high", src:[19,21,23],
+   desc:"3D die-stacking via TSVs/microbumps, in high-volume manufacturing since 2019; Foveros Direct adds Cu-to-Cu hybrid bonding; Foveros-S reaches 36µm microbump pitch (#19).",
+   impact:"High — Intel's answer to TSMC SoIC/AMD 3D V-Cache; core to Intel's own client and server chiplet roadmap."},
+ {id:"EMIB 3.5D (Co-EMIB)", cat:"packagingtech", base:3, confidence:"high", src:[17,19,21,23],
+   desc:"Hybrid architecture merging 2.5D lateral EMIB bridging with 3D vertical Foveros stacking for the most complex packages (#17, #19).",
+   impact:"Medium-high — Intel's most advanced current offering, positioned against TSMC's most complex CoWoS+SoIC combinations."},
+ {id:"TSMC CoWoS-S / CoWoS-L (competing tech)", cat:"packagingtech", base:4, confidence:"high", src:[6,20,30],
+   desc:"Competing 2.5D packaging: CoWoS-S ~3.3x reticle scaling, CoWoS-L ~3.5x, vs. Intel's EMIB-M at 6x now and a projected 8-12x by 2026-27 (#6).",
+   impact:"High — direct competitive benchmark; if EMIB's reticle-scaling edge holds, Intel Foundry could win external customers away from TSMC."},
+
+ // L3 processor consumption
+ {id:"Intel — substrate consumption", cat:"processor", base:4, confidence:"medium", src:[6,7,10,11],
+   desc:"Confirmed customer of Ibiden, Shinko, Unimicron, AT&S for EMIB (#6). No public source discloses Intel's exact % share of global substrate consumption — treat any percentage as illustrative, not sourced fact.",
+   impact:"High — Kawama plant built specifically for Intel (#7); reportedly co-funding supplier capex (#10, single-source)."},
+ {id:"Nvidia — substrate consumption", cat:"processor", base:5, confidence:"medium", src:[9,11,12],
+   desc:"Ibiden's stated primary AI customer (#9); each GB200 NVL72 rack uses 144+ substrates (#11). No firm publishes its exact global consumption %.",
+   impact:"CRITICAL directionally — highest per-chip substrate value/volume given AI accelerator complexity (#11)."},
+ {id:"AMD — substrate consumption", cat:"processor", base:3, confidence:"medium", src:[5],
+   desc:"$400M JV with SPIL securing 30% of a new Taiwan facility's output (#5).",
+   impact:"Medium-high — direct capex co-investment, a harder signal than a market-share estimate."},
+ {id:"Apple — substrate consumption", cat:"processor", base:3, confidence:"estimate", src:[15],
+   desc:"FCCSP / fan-out packaging for M-series and A-series chips.",
+   impact:"Medium — not re-verified this session, illustrative only."},
+ {id:"Rest of world (Qualcomm/Samsung/Broadcom)", cat:"processor", base:2, confidence:"estimate", src:[15],
+   desc:"Mobile SoCs, RF, misc. logic.",
+   impact:"Low-medium — fragmented demand, least exposed to any single supplier shock."},
+
+ // L4 end use
+ {id:"AI data-center training/inference", cat:"enduse", base:5, confidence:"high", src:[2,5,11],
+   desc:"Layer counts rising 3+3→11+11→13+13 (#2); 1.2M AI accelerator units installed 2025 (#5); AI server shipments 1.8M→4.5M units 2025-2028 (#11).",
+   impact:"CRITICAL and fastest-growing — the biggest driver of substrate ASP inflation and layer-count complexity."},
+ {id:"AI edge/PC (on-device AI)", cat:"enduse", base:3, confidence:"estimate", src:[15],
+   desc:"Client AI PC chips with NPUs — mid-complexity organic substrates.",
+   impact:"Medium, growing."},
+ {id:"Non-AI client compute (laptops/desktops)", cat:"enduse", base:4, confidence:"high", src:[4],
+   desc:"PCs = 40% of FCBGA application demand; 4-8 layer ABF = 69% of the product-type segment (#4).",
+   impact:"High by volume, low by $/unit — most price-sensitive to 2026 ABF price hikes."},
+ {id:"Non-AI enterprise servers", cat:"enduse", base:3, confidence:"medium", src:[4],
+   desc:"General enterprise Xeon/EPYC workloads outside AI training/inference.",
+   impact:"Medium — steady baseline demand."},
+ {id:"Automotive / industrial / RF", cat:"enduse", base:2, confidence:"estimate", src:[15],
+   desc:"Ceramic-substrate-heavy segment — power modules, sensors, radar.",
+   impact:"Medium — largely insulated from ABF-specific shocks."},
+
+ // PESTEL
+ {id:"CHIPS Act / EU Chips Act funding", cat:"political", base:4, confidence:"high", src:[5,13,24,26,27],
+   desc:"US CHIPS Act $50bn+ total, ~$1.6bn for FCBGA/FCCSP packaging (#13); Ibiden AZ $320M grant, Absolics GA $75M+$100M grants, Amkor AZ $407M grant, AT&S €500M EU grant.",
+   impact:"High — directly funds where new capacity gets sited, reshaping East-Asia concentration over 3-5 years."},
+ {id:"Taiwan Strait geopolitical risk", cat:"political", base:4, confidence:"estimate", src:[15],
+   desc:"Concentration of FCBGA assembly capacity in Taiwan.",
+   impact:"High qualitatively — Taiwan's ~30% production share (#4) makes this a structurally real exposure."},
+ {id:"ABF & CCL price hikes (2026)", cat:"economic", base:5, confidence:"high", src:[2,30],
+   desc:"Ajinomoto +30% (Q3 2026), Resonac +30%, Mitsubishi Gas Chemical +30% CCL.",
+   impact:"CRITICAL — pricing power shift toward material suppliers; ASP already rose $65→$82/unit 2024-25 (#5)."},
+ {id:"AI capex supercycle", cat:"economic", base:5, confidence:"high", src:[5,11,30],
+   desc:"1.2M AI accelerator units installed 2025 (#5); AI server shipments 1.8M→4.5M units 2025-2028 (#11).",
+   impact:"CRITICAL — the dominant demand-side variable in the whole graph."},
+ {id:"Capex co-funding by chip customers", cat:"economic", base:4, confidence:"high", src:[10,5,31],
+   desc:"Nvidia/Intel/AMD reportedly co-funding ~50% of top-4 supplier capex via prepayment (#10, originally single-blog); NOW CORROBORATED — Intel CEO Lip-Bu Tan confirmed at the J.P. Morgan Global Technology Conference that 4 Taiwan + 2 Japan suppliers are requesting prepayment commitments (#31, live-fetched); AMD's $400M SPIL JV (#5) further corroborates the pattern.",
+   impact:"High and confirmed — customers underwriting supplier capacity risk signals extreme scarcity leverage on suppliers. Confidence upgraded this session from a single blog claim to a company-officer statement."},
+ {id:"Engineering talent availability", cat:"social", base:2, confidence:"estimate", src:[15],
+   desc:"Packaging/materials-science talent pool in Japan, Taiwan, Korea, US.",
+   impact:"Medium — no fresh source found this session."},
+ {id:"Enterprise AI adoption pace", cat:"social", base:3, confidence:"estimate", src:[15],
+   desc:"Real-world enterprise AI adoption rate vs. speculative hyperscaler buildout.",
+   impact:"Medium — determines whether AI capex supercycle is durable demand; no fresh source found this session."},
+ {id:"Chiplet architecture shift", cat:"tech", base:5, confidence:"high", src:[2,5],
+   desc:"AI packaging layer counts rising 3+3→11+11→13+13 (#2); chiplet die-area cuts up to 40%, microvias below 50µm (#5, citing IEEE IEDM 2025).",
+   impact:"CRITICAL — the structural reason substrate layer counts are rising faster than unit shipments."},
+ {id:"Glass-core substrate breakthrough", cat:"tech", base:3, confidence:"high", src:[5,24,25],
+   desc:"Unimicron's $180M Corning glass-pilot stake (2nm samples Q2 2027); Absolics' dedicated Georgia glass factory.",
+   impact:"Medium today, high optionality — the clearest emerging hedge against the Ajinomoto/ABF monopoly."},
+ {id:"Energy use & emissions rules", cat:"environ", base:2, confidence:"estimate", src:[15],
+   desc:"Carbon/energy regulation affecting fab siting and operating cost.",
+   impact:"Low-medium — no fresh source found this session."},
+ {id:"Chemical safety & waste regulation", cat:"environ", base:2, confidence:"estimate", src:[15],
+   desc:"Handling of resins, solvents, copper-plating baths.",
+   impact:"Low-medium — no fresh source found this session."},
+ {id:"IP litigation & antitrust exposure", cat:"legal", base:2, confidence:"estimate", src:[15],
+   desc:"Packaging patents (EMIB/Foveros) and potential antitrust scrutiny of concentrated suppliers.",
+   impact:"Low-medium — plausible but no active case found; a watch item, not a confirmed event."},
+ {id:"Export compliance & sanctions law", cat:"legal", base:2, confidence:"estimate", src:[15],
+   desc:"Cross-border shipment of chemicals, glass, and precision tooling.",
+   impact:"Low-medium — no fresh source found this session."}
+];
+
+/* ============ LINKS ============ */
+const links = [
+ // L1 -> L2
+ {s:"Ajinomoto ABF film", t:"Ibiden — Organic FCBGA", w:5}, {s:"Ajinomoto ABF film", t:"Unimicron — Organic FCBGA", w:5},
+ {s:"Ajinomoto ABF film", t:"Shinko Electric — Organic laminate", w:4}, {s:"Ajinomoto ABF film", t:"AT&S — Organic FCBGA", w:4},
+ {s:"Sekisui Chemical (2nd source)", t:"Shinko Electric — Organic laminate", w:2}, {s:"Sekisui Chemical (2nd source)", t:"AT&S — Organic FCBGA", w:2},
+ {s:"Resonac / Mitsubishi Gas Chemical CCL resin", t:"Ibiden — Organic FCBGA", w:3}, {s:"Resonac / Mitsubishi Gas Chemical CCL resin", t:"Unimicron — Organic FCBGA", w:3},
+ {s:"Mitsui/Nan Ya copper foil", t:"Ibiden — Organic FCBGA", w:4}, {s:"Mitsui/Nan Ya copper foil", t:"Unimicron — Organic FCBGA", w:4}, {s:"Mitsui/Nan Ya copper foil", t:"Samsung EM — Glass & Organic", w:3},
+ {s:"Corning/Schott glass core", t:"Samsung EM — Glass & Organic", w:3}, {s:"Corning/Schott glass core", t:"Unimicron — Organic FCBGA", w:3}, {s:"Corning/Schott glass core", t:"Absolics (SKC/Applied Materials JV) — Glass core", w:5},
+ {s:"Kyocera/CoorsTek ceramic powders", t:"Kyocera — Ceramic package", w:5},
+
+ // L2 -> L2b facilities
+ {s:"Ibiden — Organic FCBGA", t:"Ibiden fab — Phoenix, Arizona (US)", w:5},
+ {s:"Absolics (SKC/Applied Materials JV) — Glass core", t:"Absolics fab — Covington, Georgia (US)", w:5},
+ {s:"AT&S — Organic FCBGA", t:"AT&S — Leoben, Austria & Kulim, Malaysia", w:5},
+ {s:"Samsung EM — Glass & Organic", t:"Samsung EM — Busan, South Korea", w:5},
+ {s:"Unimicron — Organic FCBGA", t:"Corning/Unimicron pilot — Corning, New York (US)", w:3},
+ {s:"Corning/Schott glass core", t:"Corning/Unimicron pilot — Corning, New York (US)", w:4},
+ {s:"Ibiden fab — Phoenix, Arizona (US)", t:"Amkor fab — Peoria, Arizona (US)", w:2},
+
+ // L2b -> political (CHIPS/EU funding)
+ {s:"CHIPS Act / EU Chips Act funding", t:"Ibiden fab — Phoenix, Arizona (US)", w:4},
+ {s:"CHIPS Act / EU Chips Act funding", t:"Absolics fab — Covington, Georgia (US)", w:5},
+ {s:"CHIPS Act / EU Chips Act funding", t:"Amkor fab — Peoria, Arizona (US)", w:4},
+ {s:"CHIPS Act / EU Chips Act funding", t:"AT&S — Leoben, Austria & Kulim, Malaysia", w:4},
+
+ // Intel packaging tech <-> facilities
+ {s:"Intel Foundry — Rio Rancho, New Mexico (Fab 9)", t:"EMIB (2.5D bridge)", w:5},
+ {s:"Intel Foundry — Rio Rancho, New Mexico (Fab 9)", t:"Foveros 2.5D / Foveros Direct", w:5},
+ {s:"Intel Foundry — Chandler, Arizona", t:"EMIB (2.5D bridge)", w:3},
+ {s:"Intel Foundry — Hillsboro, Oregon", t:"EMIB-T (EMIB-TSV)", w:2},
+
+ // substrate makers -> EMIB (confirmed partners)
+ {s:"Ibiden fab — Phoenix, Arizona (US)", t:"EMIB (2.5D bridge)", w:4},
+ {s:"Shinko Electric — Organic laminate", t:"EMIB (2.5D bridge)", w:4},
+ {s:"Unimicron — Organic FCBGA", t:"EMIB (2.5D bridge)", w:4},
+ {s:"AT&S — Leoben, Austria & Kulim, Malaysia", t:"EMIB (2.5D bridge)", w:4},
+
+ // packaging tech relationships
+ {s:"EMIB (2.5D bridge)", t:"EMIB-T (EMIB-TSV)", w:4},
+ {s:"Foveros 2.5D / Foveros Direct", t:"EMIB-T (EMIB-TSV)", w:3},
+ {s:"EMIB (2.5D bridge)", t:"EMIB 3.5D (Co-EMIB)", w:3},
+ {s:"Foveros 2.5D / Foveros Direct", t:"EMIB 3.5D (Co-EMIB)", w:3},
+ {s:"TSMC CoWoS-S / CoWoS-L (competing tech)", t:"Nvidia — substrate consumption", w:5},
+ {s:"TSMC CoWoS-S / CoWoS-L (competing tech)", t:"AMD — substrate consumption", w:4},
+ {s:"TSMC CoWoS-S / CoWoS-L (competing tech)", t:"Apple — substrate consumption", w:2},
+
+ // packaging tech -> processor / end use
+ {s:"EMIB (2.5D bridge)", t:"Intel — substrate consumption", w:5},
+ {s:"EMIB-T (EMIB-TSV)", t:"Intel — substrate consumption", w:4},
+ {s:"EMIB-T (EMIB-TSV)", t:"AI data-center training/inference", w:4},
+ {s:"Foveros 2.5D / Foveros Direct", t:"Intel — substrate consumption", w:5},
+ {s:"EMIB 3.5D (Co-EMIB)", t:"AI data-center training/inference", w:3},
+ {s:"EMIB (2.5D bridge)", t:"Chiplet architecture shift", w:4},
+ {s:"TSMC CoWoS-S / CoWoS-L (competing tech)", t:"Chiplet architecture shift", w:4},
+
+ // L2 -> L3 (remaining direct supplier->processor links)
+ {s:"Ibiden — Organic FCBGA", t:"Nvidia — substrate consumption", w:4},
+ {s:"Unimicron — Organic FCBGA", t:"Nvidia — substrate consumption", w:5}, {s:"Unimicron — Organic FCBGA", t:"AMD — substrate consumption", w:4}, {s:"Unimicron — Organic FCBGA", t:"Apple — substrate consumption", w:3},
+ {s:"Shinko Electric — Organic laminate", t:"AMD — substrate consumption", w:3},
+ {s:"AT&S — Organic FCBGA", t:"Nvidia — substrate consumption", w:2},
+ {s:"Samsung EM — Glass & Organic", t:"Rest of world (Qualcomm/Samsung/Broadcom)", w:5}, {s:"Samsung EM — Glass & Organic", t:"Nvidia — substrate consumption", w:2},
+ {s:"Kyocera — Ceramic package", t:"Rest of world (Qualcomm/Samsung/Broadcom)", w:3},
+ {s:"Absolics (SKC/Applied Materials JV) — Glass core", t:"Intel — substrate consumption", w:2}, {s:"Absolics (SKC/Applied Materials JV) — Glass core", t:"Nvidia — substrate consumption", w:2},
+
+ // L3 -> L4
+ {s:"Intel — substrate consumption", t:"Non-AI client compute (laptops/desktops)", w:5}, {s:"Intel — substrate consumption", t:"Non-AI enterprise servers", w:4}, {s:"Intel — substrate consumption", t:"AI data-center training/inference", w:3}, {s:"Intel — substrate consumption", t:"AI edge/PC (on-device AI)", w:3},
+ {s:"Nvidia — substrate consumption", t:"AI data-center training/inference", w:5},
+ {s:"AMD — substrate consumption", t:"AI data-center training/inference", w:4}, {s:"AMD — substrate consumption", t:"Non-AI enterprise servers", w:3}, {s:"AMD — substrate consumption", t:"Non-AI client compute (laptops/desktops)", w:3},
+ {s:"Apple — substrate consumption", t:"Non-AI client compute (laptops/desktops)", w:5}, {s:"Apple — substrate consumption", t:"AI edge/PC (on-device AI)", w:3},
+ {s:"Rest of world (Qualcomm/Samsung/Broadcom)", t:"Non-AI client compute (laptops/desktops)", w:3}, {s:"Rest of world (Qualcomm/Samsung/Broadcom)", t:"Automotive / industrial / RF", w:4}, {s:"Rest of world (Qualcomm/Samsung/Broadcom)", t:"AI edge/PC (on-device AI)", w:2},
+
+ // PESTEL -> nodes
+ {s:"Taiwan Strait geopolitical risk", t:"Unimicron — Organic FCBGA", w:5}, {s:"Taiwan Strait geopolitical risk", t:"Nvidia — substrate consumption", w:4},
+ {s:"ABF & CCL price hikes (2026)", t:"Ajinomoto ABF film", w:5}, {s:"ABF & CCL price hikes (2026)", t:"Resonac / Mitsubishi Gas Chemical CCL resin", w:4}, {s:"ABF & CCL price hikes (2026)", t:"Non-AI client compute (laptops/desktops)", w:3},
+ {s:"AI capex supercycle", t:"AI data-center training/inference", w:5}, {s:"AI capex supercycle", t:"Nvidia — substrate consumption", w:5}, {s:"AI capex supercycle", t:"Ibiden — Organic FCBGA", w:3}, {s:"AI capex supercycle", t:"Unimicron — Organic FCBGA", w:3},
+ {s:"Capex co-funding by chip customers", t:"Ibiden — Organic FCBGA", w:4}, {s:"Capex co-funding by chip customers", t:"AMD — substrate consumption", w:3},
+ {s:"Engineering talent availability", t:"Ibiden — Organic FCBGA", w:2}, {s:"Engineering talent availability", t:"Absolics (SKC/Applied Materials JV) — Glass core", w:3},
+ {s:"Enterprise AI adoption pace", t:"AI capex supercycle", w:4}, {s:"Enterprise AI adoption pace", t:"Non-AI enterprise servers", w:2},
+ {s:"Chiplet architecture shift", t:"Nvidia — substrate consumption", w:4}, {s:"Chiplet architecture shift", t:"AMD — substrate consumption", w:4}, {s:"Chiplet architecture shift", t:"Ajinomoto ABF film", w:3},
+ {s:"Glass-core substrate breakthrough", t:"Corning/Schott glass core", w:4}, {s:"Glass-core substrate breakthrough", t:"Samsung EM — Glass & Organic", w:3}, {s:"Glass-core substrate breakthrough", t:"Absolics (SKC/Applied Materials JV) — Glass core", w:5}, {s:"Glass-core substrate breakthrough", t:"Unimicron — Organic FCBGA", w:3},
+ {s:"Energy use & emissions rules", t:"Ibiden — Organic FCBGA", w:2}, {s:"Energy use & emissions rules", t:"Absolics (SKC/Applied Materials JV) — Glass core", w:2},
+ {s:"Chemical safety & waste regulation", t:"Ajinomoto ABF film", w:3}, {s:"Chemical safety & waste regulation", t:"Mitsui/Nan Ya copper foil", w:2},
+ {s:"IP litigation & antitrust exposure", t:"Ajinomoto ABF film", w:2}, {s:"IP litigation & antitrust exposure", t:"EMIB (2.5D bridge)", w:2},
+ {s:"Export compliance & sanctions law", t:"Corning/Schott glass core", w:2}, {s:"Export compliance & sanctions law", t:"Kyocera/CoorsTek ceramic powders", w:2}
+];
+
+/* ============ AGENTS ============ */
+const agents = [
+  {
+    id:"supply", name:"Supply Concentration Agent", enabled:true,
+    srcRefs:[1,2,3,4,5,14],
+    logic:"Boosts nodes tied to single-supplier or top-5-concentrated chokepoints.",
+    multiplier:(n)=>{
+      if(n.id==="Ajinomoto ABF film") return 1.35;
+      if(["Ibiden — Organic FCBGA","Unimicron — Organic FCBGA"].includes(n.id)) return 1.25;
+      if(["Shinko Electric — Organic laminate","AT&S — Organic FCBGA"].includes(n.id)) return 1.15;
+      if(n.id==="Taiwan Strait geopolitical risk") return 1.2;
+      return 1.0;
+    }
+  },
+  {
+    id:"cost", name:"Cost & Pricing Agent", enabled:true,
+    srcRefs:[2,5],
+    logic:"Boosts nodes hit by the 2026 30% ABF/CCL price hikes and rising ASPs.",
+    multiplier:(n)=>{
+      if(["Ajinomoto ABF film","Resonac / Mitsubishi Gas Chemical CCL resin","ABF & CCL price hikes (2026)"].includes(n.id)) return 1.3;
+      if(n.id==="Non-AI client compute (laptops/desktops)") return 1.15;
+      if(["Ibiden — Organic FCBGA","Unimicron — Organic FCBGA","Shinko Electric — Organic laminate","AT&S — Organic FCBGA"].includes(n.id)) return 1.1;
+      return 1.0;
+    }
+  },
+  {
+    id:"capacity", name:"Capacity & Investment Agent", enabled:true,
+    srcRefs:[5,6,7,8,9,10,24,26,27],
+    logic:"Boosts suppliers/facilities under active, sourced capex expansion and Intel's confirmed EMIB partner set.",
+    multiplier:(n)=>{
+      if(["Ibiden — Organic FCBGA","Ibiden fab — Phoenix, Arizona (US)"].includes(n.id)) return 1.35;
+      if(["AT&S — Organic FCBGA","AT&S — Leoben, Austria & Kulim, Malaysia"].includes(n.id)) return 1.2;
+      if(["Absolics (SKC/Applied Materials JV) — Glass core","Absolics fab — Covington, Georgia (US)"].includes(n.id)) return 1.2;
+      if(n.id==="Samsung EM — Glass & Organic") return 1.15;
+      if(n.id==="Unimicron — Organic FCBGA") return 1.15;
+      if(n.id==="Intel — substrate consumption") return 1.2;
+      if(n.id==="Capex co-funding by chip customers") return 1.2;
+      return 1.0;
+    }
+  },
+  {
+    id:"aidemand", name:"AI-Demand Agent", enabled:true,
+    srcRefs:[2,5,11],
+    logic:"Boosts nodes tied to AI-driven layer-count growth and hyperscaler unit growth.",
+    multiplier:(n)=>{
+      if(n.id==="AI data-center training/inference") return 1.4;
+      if(n.id==="Nvidia — substrate consumption") return 1.3;
+      if(n.id==="Chiplet architecture shift") return 1.25;
+      if(n.id==="AI capex supercycle") return 1.3;
+      if(["AMD — substrate consumption","AI edge/PC (on-device AI)","EMIB-T (EMIB-TSV)"].includes(n.id)) return 1.15;
+      return 1.0;
+    }
+  },
+  {
+    id:"geo", name:"Geographic Diversification Agent", enabled:true,
+    srcRefs:[13,24,26,27,5],
+    logic:"Boosts US/EU facility nodes and the CHIPS/EU funding node — the policy-driven counterweight to East-Asia concentration.",
+    multiplier:(n)=>{
+      if(n.id==="CHIPS Act / EU Chips Act funding") return 1.3;
+      if(["Ibiden fab — Phoenix, Arizona (US)","Absolics fab — Covington, Georgia (US)","Amkor fab — Peoria, Arizona (US)","Corning/Unimicron pilot — Corning, New York (US)"].includes(n.id)) return 1.25;
+      if(n.id==="AT&S — Leoben, Austria & Kulim, Malaysia") return 1.2;
+      if(["Intel Foundry — Rio Rancho, New Mexico (Fab 9)","Intel Foundry — Chandler, Arizona","Intel Foundry — Hillsboro, Oregon"].includes(n.id)) return 1.2;
+      return 1.0;
+    }
+  },
+  {
+    id:"livecheck", name:"Live URL-Check Agent (fetched Aug 18 2026)", enabled:true,
+    srcRefs:[1,30,31,32,33],
+    logic:"Not simulated — this one actually re-fetched 5 of the graph's cited URLs live just now and found 2 genuinely new signals (ASE's >20% packaging price hike, EMIB-T warpage risk at ECTC 2026) plus one upgraded confidence level (Intel CEO confirming supplier prepayments, previously a single-blog claim).",
+    multiplier:(n)=>{
+      if(["ABF & CCL price hikes (2026)","TSMC CoWoS-S / CoWoS-L (competing tech)"].includes(n.id)) return 1.2;
+      if(n.id==="AI capex supercycle") return 1.15;
+      if(n.id==="EMIB (2.5D bridge)") return 1.25;
+      if(n.id==="Capex co-funding by chip customers") return 1.3;
+      if(n.id==="EMIB-T (EMIB-TSV)") return 0.9;
+      if(["Ibiden — Organic FCBGA","Shinko Electric — Organic laminate","Unimicron — Organic FCBGA","AT&S — Organic FCBGA"].includes(n.id)) return 0.95;
+      return 1.0;
+    }
+  }
+];
+
+/* ============ LIVE GEMINI AGENT (genuinely dynamic, not simulated) ============
+   Key stays in a plain JS variable — in-memory only, never persisted, never
+   sent anywhere except directly to generativelanguage.googleapis.com. This
+   is a real network call; if your browser/network blocks it (CORS, ad
+   blocker, corporate proxy), you'll see the actual error in #liveLog. */
+let geminiApiKey = "";
+const VALID_NODE_IDS = nodes.map(n=>n.id);
+
+const LAYER_QUERIES = {
+  raw_material:   ["Ajinomoto ABF film price capacity news", "Resonac Mitsubishi Gas Chemical copper clad laminate price", "Corning Schott glass core substrate news"],
+  substrate:      ["Ibiden Unimicron Shinko AT&S substrate capex news", "Samsung Electro-Mechanics substrate expansion"],
+  facility:       ["CHIPS Act EU Chips Act advanced packaging grant news", "Absolics Ibiden Arizona Georgia fab news"],
+  packaging_tech: ["Intel EMIB EMIB-T Foveros news", "TSMC CoWoS ASE OSAT packaging price news"],
+  processor:      ["Nvidia Intel AMD Apple AI chip substrate demand news", "AI accelerator shipment forecast news"],
+  pestel:         ["semiconductor Taiwan Strait geopolitical risk news", "AI capex hyperscaler spending news"]
+};
+
+const EXTRACTION_PROMPT_HEAD = `You are a data-extraction agent for a supply-chain knowledge graph.
+Search the web for current information on the topics given. Respond with
+ONLY a JSON array (no prose, no markdown fences) of signal objects:
+{"node_id": "<must exactly match one of the valid node IDs listed below>",
+ "direction": "up" | "down" | "flat",
+ "confidence": "high" | "medium" | "low",
+ "summary": "<one sentence, your own words>",
+ "source_url": "<url>", "source_title": "<title>"}
+Only include signals attributable to a real source found via search. Omit
+rather than invent. Return at most 6 signals total.
+
+Valid node IDs (use these exact strings for node_id):
+${VALID_NODE_IDS.map(id=>`- ${id}`).join("\n")}
+`;
+
+// Verify this is still current at https://ai.google.dev/gemini-api/docs/models —
+// Google ships new model versions frequently.
+const MODEL_ID = "gemini-3.6-flash";
+
+async function fetchGeminiLayer(layer){
+  const queries = LAYER_QUERIES[layer];
+  const prompt = EXTRACTION_PROMPT_HEAD + "\nTopics for this run:\n- " + queries.join("\n- ");
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent`, {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-goog-api-key":geminiApiKey},
+    body: JSON.stringify({
+      contents:[{parts:[{text:prompt}]}],
+      tools:[{google_search:{}}]
+    })
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error ? data.error.message : `HTTP ${res.status}`);
+  const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+  const text = parts.map(p=>p.text||"").join("").trim();
+  const cleaned = text.replace(/```json/g,"").replace(/```/g,"").trim();
+  try{
+    const signals = JSON.parse(cleaned);
+    return Array.isArray(signals) ? signals : [];
+  }catch(e){
+    console.warn(`[${layer}] could not parse JSON:`, text);
+    return [];
+  }
+}
+
+/* Same propagation math as the GCP/Colab/local Python versions, ported to JS */
+const BASE_MOVE=0.15, HOPS=2, DECAY=0.5;
+function signalDelta(sig){
+  const conf = {high:1.0, medium:0.6, low:0.3}[sig.confidence] || 0.3;
+  if(sig.direction==="up") return BASE_MOVE*conf;
+  if(sig.direction==="down") return -BASE_MOVE*conf;
+  return 0;
+}
+function propagateImpact(nodeId, delta){
+  const impacts = {[nodeId]: delta};
+  let frontier = new Set([nodeId]);
+  const visited = new Set([nodeId]);
+  let cur = delta;
+  for(let h=0; h<HOPS; h++){
+    cur *= DECAY;
+    if(Math.abs(cur) < 0.001) break;
+    const next = new Set();
+    frontier.forEach(n=>{
+      links.filter(l=>l.s===n||l.t===n).forEach(l=>{
+        const other = l.s===n ? l.t : l.s;
+        if(visited.has(other) && other!==nodeId) return;
+        const contrib = cur * (l.w/5);
+        impacts[other] = (impacts[other]||0) + contrib;
+        next.add(other);
+      });
+    });
+    next.forEach(x=>visited.add(x));
+    frontier = next;
+  }
+  return impacts;
+}
+
+let geminiPropagatedTotals = {};   // node.id -> summed delta from live signals
+let geminiSignalTrace = {};        // node.id -> [{source_node, contribution}]
+let geminiRawSignals = [];         // last run's raw signals, for the audit log
+
+async function runLiveAgent(){
+  const btn = document.getElementById("runLiveAgent");
+  const log = document.getElementById("liveLog");
+  geminiApiKey = document.getElementById("geminiKey").value.trim();
+  if(!geminiApiKey){ log.textContent = "Enter a Gemini API key first (aistudio.google.com/apikey)."; return; }
+
+  const layersToRun = Array.from(document.querySelectorAll(".liveLayerChk:checked")).map(el=>el.value);
+  if(!layersToRun.length){ log.textContent = "Select at least one layer."; return; }
+
+  btn.disabled = true; btn.textContent = "Fetching…";
+  log.textContent = `Running ${layersToRun.length} layer(s)…\n`;
+  geminiRawSignals = [];
+
+  for(const layer of layersToRun){
+    try{
+      log.textContent += `[${layer}] querying Gemini…\n`;
+      const sigs = await fetchGeminiLayer(layer);
+      log.textContent += `[${layer}] -> ${sigs.length} signal(s)\n`;
+      geminiRawSignals.push(...sigs);
+    }catch(e){
+      const isNetworkFail = e.message === "Failed to fetch" || e instanceof TypeError;
+      log.textContent += `[${layer}] FAILED: ${e.message}` +
+        (isNetworkFail ? "  (network/CORS-level — see 'Test connection' button above for the likely cause)\n" : "  (reached Google, but it rejected the request — likely a key problem)\n");
+    }
+  }
+
+  geminiPropagatedTotals = {}; geminiSignalTrace = {};
+  geminiRawSignals.forEach(sig=>{
+    if(!VALID_NODE_IDS.includes(sig.node_id)) return;
+    const delta = signalDelta(sig);
+    if(delta===0) return;
+    const impacts = propagateImpact(sig.node_id, delta);
+    Object.entries(impacts).forEach(([nid, contrib])=>{
+      geminiPropagatedTotals[nid] = (geminiPropagatedTotals[nid]||0) + contrib;
+      geminiSignalTrace[nid] = geminiSignalTrace[nid] || [];
+      geminiSignalTrace[nid].push({source_node:sig.node_id, contribution:+contrib.toFixed(4)});
+    });
+  });
+
+  recomputeWeights();
+  nodeGroup.select("path.node-shape")
+    .transition().duration(500)
+    .attrTween("d", function(d){ const start=d3.select(this).attr("d"); return t=> t<1?start:symbolFor(d.tier); })
+    .on("end", function(d){ d3.select(this).attr("d", symbolFor(d.tier)).attr("fill", categories[d.cat].color); });
+  simulation.force("collide", d3.forceCollide(d=>15+d.weight*1.8)).alpha(0.6).restart();
+
+  const touched = Object.keys(geminiPropagatedTotals).length;
+  log.textContent += `\nDone ${new Date().toLocaleTimeString()} — ${geminiRawSignals.length} signal(s) found, ${touched} node(s) touched (direct + propagated).`;
+  btn.disabled = false; btn.textContent = "▶ Fetch live & recompute";
+}
+
+function baseLinkWeight(id){
+  const rel = links.filter(l=>l.s===id || l.t===id);
+  if(!rel.length) return 2;
+  return rel.reduce((a,l)=>a+l.w,0)/rel.length;
+}
+function recomputeWeights(){
+  nodes.forEach(n=>{
+    if(n.manualOverride != null){
+      n.weight = n.manualOverride;
+      n.tier = n.weight>4.5 ? "critical" : n.weight>3.5 ? "high" : n.weight>2.5 ? "elevated" : "normal";
+      return;
+    }
+    let w = (n.base*0.6 + baseLinkWeight(n.id)*0.4);
+    agents.filter(a=>a.enabled).forEach(a=>{ w *= a.multiplier(n); });
+    const liveDelta = Math.max(-0.6, Math.min(0.6, geminiPropagatedTotals[n.id]||0));
+    w *= (1 + liveDelta);
+    n.weight = Math.max(1, Math.min(6, w));
+    n.tier = n.weight>4.5 ? "critical" : n.weight>3.5 ? "high" : n.weight>2.5 ? "elevated" : "normal";
+  });
+}
+recomputeWeights();
+
+/* ============ render ============ */
+const nodeById = {}; nodes.forEach(n=>nodeById[n.id]=n);
+const linkData = links.map(l=>({source:l.s, target:l.t, w:l.w}));
+
+const svgEl = d3.select("#svg");
+const graphDiv = document.getElementById("graph");
+let width = graphDiv.clientWidth, height = graphDiv.clientHeight;
+svgEl.attr("viewBox",[0,0,width,height]);
+const g = svgEl.append("g");
+svgEl.call(d3.zoom().scaleExtent([0.25,3]).on("zoom",(e)=>g.attr("transform",e.transform)));
+
+["material","substrate","facility","packagingtech","processor","enduse"].forEach(c=>{
+  d3.select("#graph").append("div").attr("class","layer-tag").style("left",(categories[c].x*100)+"%").text(categories[c].label);
+});
+
+const linkSel = g.append("g").attr("stroke","#8a8f9c").selectAll("line").data(linkData).join("line")
+  .attr("stroke-width", d=>0.5+d.w*0.55).attr("stroke-opacity", d=>0.1+d.w*0.055);
+
+const symbolFor = (tier)=>{
+  if(tier==="critical") return d3.symbol().type(d3.symbolDiamond).size(320)();
+  if(tier==="high") return d3.symbol().type(d3.symbolSquare).size(240)();
+  if(tier==="elevated") return d3.symbol().type(d3.symbolTriangle).size(220)();
+  return d3.symbol().type(d3.symbolCircle).size(150)();
+};
+
+const nodeGroup = g.append("g").selectAll("g").data(nodes).join("g").call(drag());
+
+nodeGroup.append("path").attr("class","node-shape")
+  .attr("d", d=>symbolFor(d.tier))
+  .attr("fill", d=>categories[d.cat].color)
+  .attr("stroke","#0f1115").attr("stroke-width",1.1)
+  .style("cursor","pointer")
+  .on("click",(e,d)=>showDetail(d));
+
+nodeGroup.append("text").attr("class","node-label").attr("x",11).attr("y",3)
+  .text(d=>d.id.length>34 ? d.id.slice(0,32)+"…" : d.id);
+
+function xForce(d){ return categories[d.cat].x*width; }
+
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(linkData).id(d=>d.id).distance(d=>60-d.w*3).strength(d=>0.12+d.w*0.025))
+  .force("charge", d3.forceManyBody().strength(-110))
+  .force("x", d3.forceX(xForce).strength(0.4))
+  .force("y", d3.forceY(height/2).strength(0.035))
+  .force("collide", d3.forceCollide(d=>15+ (nodeById[d.id]?nodeById[d.id].weight*1.8:6)))
+  .on("tick", ticked);
+
+function ticked(){
+  linkSel.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+  nodeGroup.attr("transform", d=>`translate(${d.x},${d.y})`);
+}
+function drag(){
+  function started(e,d){ if(!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
+  function dragged(e,d){ d.fx=e.x; d.fy=e.y; }
+  function ended(e,d){ if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }
+  return d3.drag().on("start",started).on("drag",dragged).on("end",ended);
+}
+
+/* legend */
+const legendChain = d3.select("#legendChain");
+["material","substrate","facility","packagingtech","processor","enduse"].forEach(c=>{
+  const item = legendChain.append("div").attr("class","legend-item").on("click",()=>filterCat(c));
+  item.append("div").attr("class","dot").style("background",categories[c].color);
+  item.append("div").text(categories[c].label);
+});
+const legendPestel = d3.select("#legendPestel");
+["political","economic","social","tech","environ","legal"].forEach(c=>{
+  const item = legendPestel.append("div").attr("class","legend-item").on("click",()=>filterCat(c));
+  item.append("div").attr("class","dot").style("background",categories[c].color);
+  item.append("div").text(categories[c].label);
+});
+let activeCat=null;
+function filterCat(cat){
+  activeCat = activeCat===cat? null: cat;
+  nodeGroup.style("opacity", d=>!activeCat||d.cat===activeCat?1:0.1);
+  linkSel.style("opacity", l=>!activeCat||l.source.cat===activeCat||l.target.cat===activeCat? (0.1+l.w*0.055):0.03);
+}
+document.getElementById("reset").addEventListener("click",()=>{
+  activeCat=null; nodeGroup.style("opacity",1); linkSel.style("opacity",d=>0.1+d.w*0.055);
+  d3.select("#detail").html("Click any node for its sources, confidence level and business-impact weighting.");
+});
+
+/* detail panel */
+function confBadge(c){
+  const label = c==="high"?"High confidence":c==="medium"?"Medium confidence":"Estimate / not independently verified";
+  return `<span class="conf ${c}">${label}</span>`;
+}
+function showDetail(d){
+  const srcHtml = d.src.map(id=>{
+    const s = sources.find(x=>x.id===id);
+    return `<div class="src">[${id}] ${s.name} — <i>${s.url}</i><br>${s.note}</div>`;
+  }).join("");
+  const incoming = linkData.filter(l=>l.target.id===d.id).map(l=>`${l.source.id} (w${l.w})`);
+  const outgoing = linkData.filter(l=>l.source.id===d.id).map(l=>`${l.target.id} (w${l.w})`);
+  const trace = geminiSignalTrace[d.id];
+  const overrideBadge = d.manualOverride!=null ? `<span class="override-badge">manually set</span>` : "";
+  d3.select("#detail").html(
+    `<span class="cat" style="background:${categories[d.cat].color}22;color:${categories[d.cat].color}">${categories[d.cat].label}</span>${confBadge(d.confidence)}${overrideBadge}`+
+    `<b>${d.id} — weight ${d.weight.toFixed(2)} (${d.tier})</b>${d.desc}`+
+    `<div class="impact"><b style="margin:0;">Business impact</b>${d.impact}</div>`+
+    (trace ? `<div class="hint"><b>Live Gemini signal propagation:</b></div>`+trace.map(t=>`<div class="src">from ${t.source_node}: ${t.contribution>0?"+":""}${t.contribution}</div>`).join("") : "")+
+    `<div class="hint"><b>Sources:</b></div>${srcHtml}`+
+    (incoming.length?`<div class="hint">Depends on: ${incoming.join(", ")}</div>`:"")+
+    (outgoing.length?`<div class="hint">Feeds into: ${outgoing.join(", ")}</div>`:"")+
+    `<div class="override-box">
+      <b style="display:block;font-size:11.5px;color:var(--text);margin-bottom:2px;">Manually set this node's weight</b>
+      <input type="range" id="overrideSlider" min="1" max="6" step="0.1" value="${d.weight.toFixed(1)}">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span id="overrideVal" class="hint">${d.weight.toFixed(1)}</span>
+        <div>
+          <button id="applyOverride">Apply</button>
+          <button id="resetOverride" ${d.manualOverride==null?"disabled":""}>Reset to computed</button>
+        </div>
+      </div>
+    </div>`
+  );
+  const connected = new Set([d.id, ...linkData.filter(l=>l.source.id===d.id||l.target.id===d.id).flatMap(l=>[l.source.id,l.target.id])]);
+  nodeGroup.style("opacity", n=>connected.has(n.id)?1:0.1);
+  linkSel.style("opacity", l=>(l.source.id===d.id||l.target.id===d.id)? Math.min(1,0.3+l.w*0.11):0.03);
+
+  document.getElementById("overrideSlider").addEventListener("input", function(){
+    document.getElementById("overrideVal").textContent = (+this.value).toFixed(1);
+  });
+  document.getElementById("applyOverride").addEventListener("click", ()=>{
+    const val = +document.getElementById("overrideSlider").value;
+    d.manualOverride = val;
+    applyNodeWeight(d);
+    showDetail(d);
+  });
+  document.getElementById("resetOverride").addEventListener("click", ()=>{
+    d.manualOverride = null;
+    recomputeWeights();
+    applyNodeWeight(d);
+    showDetail(d);
+  });
+}
+
+function applyNodeWeight(d){
+  if(d.manualOverride!=null){
+    d.weight = d.manualOverride;
+    d.tier = d.weight>4.5 ? "critical" : d.weight>3.5 ? "high" : d.weight>2.5 ? "elevated" : "normal";
+  }
+  nodeGroup.filter(n=>n.id===d.id).select("path.node-shape")
+    .transition().duration(400)
+    .attrTween("d", function(){ const start=d3.select(this).attr("d"); return t=> t<1?start:symbolFor(d.tier); })
+    .on("end", function(){ d3.select(this).attr("d", symbolFor(d.tier)); });
+  simulation.force("collide", d3.forceCollide(n=>15+n.weight*1.8)).alpha(0.4).restart();
+}
+
+/* tabs */
+function setTab(name){
+  ["Graph","Agents","Live","Sources"].forEach(t=>{
+    document.getElementById("pane"+t).classList.toggle("active", t===name);
+    document.getElementById("tab"+t).classList.toggle("active", t===name);
+  });
+}
+document.getElementById("tabGraph").onclick=()=>setTab("Graph");
+document.getElementById("tabAgents").onclick=()=>setTab("Agents");
+document.getElementById("tabLive").onclick=()=>setTab("Live");
+document.getElementById("tabSources").onclick=()=>setTab("Sources");
+
+/* live agent layer checklist */
+const liveLayerListEl = d3.select("#liveLayerList");
+Object.keys(LAYER_QUERIES).forEach(layer=>{
+  const row = liveLayerListEl.append("label").style("display","block").style("font-size","11px").style("margin","3px 0").style("cursor","pointer");
+  row.append("input").attr("type","checkbox").attr("class","liveLayerChk").attr("value",layer).attr("checked",true);
+  row.append("span").text(" "+layer.replace("_"," "));
+});
+document.getElementById("runLiveAgent").addEventListener("click", runLiveAgent);
+
+/* live key-format check, updates as you type — this only checks SHAPE, not validity */
+document.getElementById("geminiKey").addEventListener("input", function(){
+  const v = this.value.trim();
+  const el = document.getElementById("keyCheck");
+  if(!v){ el.textContent = "No key entered yet."; el.style.color = ""; return; }
+  const looksRight = /^AIzaSy[A-Za-z0-9_-]{20,}$/.test(v);
+  if(looksRight){
+    el.textContent = `✓ Format looks correct (${v.length} chars, starts with AIzaSy).`;
+    el.style.color = "#5DCAA5";
+  } else {
+    el.textContent = `⚠ Doesn't look like a real Gemini key — expected to start with "AIzaSy" and be ~39 chars with no dots/slashes. Yours: ${v.length} chars, starts with "${v.slice(0,6)}". This alone won't cause "Failed to fetch" though — that error happens before the key is even checked.`;
+    el.style.color = "#EF9F27";
+  }
+});
+
+/* Test connection — isolates network/CORS failure from auth failure */
+document.getElementById("testConnection").addEventListener("click", async ()=>{
+  const log = document.getElementById("liveLog");
+  const key = document.getElementById("geminiKey").value.trim();
+  if(!key){ log.textContent = "Enter a key first."; return; }
+  log.textContent = "Testing connection to generativelanguage.googleapis.com...\n";
+  try{
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body: JSON.stringify({contents:[{parts:[{text:"Say OK"}]}]})
+    });
+    const data = await res.json();
+    if(res.ok){
+      log.textContent += `SUCCESS — request reached Google and returned HTTP ${res.status}.\nThis means your key and network both work. The earlier failures should now work too — try "Fetch live & recompute" again.`;
+    } else {
+      log.textContent += `Request REACHED Google (HTTP ${res.status}) but Google rejected it.\nThis is a KEY problem, not a network problem. Google's error:\n${JSON.stringify(data.error||data, null, 2)}`;
+    }
+  } catch(e){
+    log.textContent += `NETWORK-LEVEL FAILURE: "${e.message}"\n\n`+
+      `The request never reached Google at all — this is NOT a key problem. `+
+      `A bare "${e.message}" from fetch() (no HTTP status, no response body) means one of:\n`+
+      `1. You're viewing this file inside claude.ai's artifact preview panel, which sandboxes outbound network requests via Content-Security-Policy — this is almost certainly it.\n`+
+      `2. A browser extension (ad blocker, privacy tool) is blocking the request.\n`+
+      `3. A corporate/school network firewall is blocking generativelanguage.googleapis.com.\n\n`+
+      `FIX for #1 (most likely): download this HTML file and open it directly by double-clicking it (or dragging into a browser tab) — NOT viewed inside claude.ai's preview. A fully standalone browser tab has no such CSP restriction.`;
+  }
+});
+
+/* agent panel */
+const agentList = d3.select("#agentList");
+agents.forEach(a=>{
+  const box = agentList.append("div").attr("class","agent-box");
+  box.html(`<label><input type="checkbox" ${a.enabled?"checked":""} id="chk_${a.id}"> <b style="display:inline;">${a.name}</b></label>
+    <div>${a.logic}</div>
+    <div class="asrc">Sources: ${a.srcRefs.map(r=>"#"+r).join(", ")}</div>`);
+  document.getElementById("chk_"+a.id).addEventListener("change",(e)=>{ a.enabled = e.target.checked; });
+});
+
+document.getElementById("runAgents").addEventListener("click", ()=>{
+  recomputeWeights();
+  nodeGroup.select("path.node-shape")
+    .transition().duration(500)
+    .attrTween("d", function(d){ const start = d3.select(this).attr("d"); return (t)=> t<1?start:symbolFor(d.tier); })
+    .on("end", function(d){ d3.select(this).attr("d", symbolFor(d.tier)).attr("fill", categories[d.cat].color); });
+  simulation.force("collide", d3.forceCollide(d=>15+d.weight*1.8)).alpha(0.6).restart();
+  const active = agents.filter(a=>a.enabled).map(a=>a.name);
+  const criticalCount = nodes.filter(n=>n.tier==="critical").length;
+  const highCount = nodes.filter(n=>n.tier==="high").length;
+  document.getElementById("agentLog").innerHTML =
+    `Recomputed ${new Date().toLocaleTimeString()} — active agents: ${active.join(", ")||"none"}.<br>`+
+    `Result: ${criticalCount} nodes critical (◆), ${highCount} high (■).`;
+});
+
+/* sources tab */
+const sourceListEl = d3.select("#sourceList");
+sources.forEach(s=>{
+  sourceListEl.append("div").attr("class","src").style("margin-bottom","8px")
+    .html(`<b style="color:var(--text);">[${s.id}] ${s.name}</b><br>${s.url}<br>${s.note}`);
+});
+
+window.addEventListener("resize", ()=>{
+  width=graphDiv.clientWidth; height=graphDiv.clientHeight;
+  svgEl.attr("viewBox",[0,0,width,height]);
+  simulation.force("x", d3.forceX(xForce).strength(0.4)).force("y", d3.forceY(height/2).strength(0.035)).alpha(0.3).restart();
+});
+</script>
+</body>
+</html>
