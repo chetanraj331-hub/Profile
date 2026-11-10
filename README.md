@@ -1,5 +1,7 @@
 Hi, I'm Chetan Raj 👋
+
 Data & Cloud Engineer → MBA (PGPEx 2027, IIM Mumbai) · 5.5 years across BFSI and healthcare · Agentic AI, data platforms, cloud migration
+
 
 I build scalable cloud data platforms and, more recently, multi-agent simulations that turn supply-chain risk signals into decisions.
 
