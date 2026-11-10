@@ -55,7 +55,7 @@ Substrate → Packaging → Facility Knowledge Graph
 
 An interactive, sourced and weighted knowledge graph with a multi-agent simulation of semiconductor substrate supply risk, built as part of my IIM Mumbai capstone on Intel (June 2026).
 
-🔗 Live demo: https://chetanraj331-hub.github.io
+🔗 Live demo: https://github.com/chetanraj331-hub/Profile/blob/main/substrate_agent_graph_v2.html
 
 Problem
 
