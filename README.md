@@ -5,6 +5,8 @@ I build scalable cloud data platforms and, more recently, multi-agent simulation
 
 LinkedIn
 https://www.linkedin.com/in/chetan-raj-756449143/
+
+
 🧰 Skills
 Area	Tools & Concepts
 Data Engineering	ETL/ELT, Data Warehousing (DIM/FACT, delivery layer), Oracle ODI & OWB, large-scale migration
@@ -22,6 +24,8 @@ Toggleable agents (Supply Concentration, Cost & Pricing, Capacity & Investment) 
 Optional live mode using Gemini with Google Search grounding
 🔗 Live demo: https://chetanraj331-hub.github.io/intel-substrate-agent-graph/ (works once GitHub Pages is on)
 Stack: JavaScript, D3.js, Gemini API
+
+
 💼 Experience
 Consultant, Deloitte USI (Bangalore) · Aug 2024 – Apr 2026
 
